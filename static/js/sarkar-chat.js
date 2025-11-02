@@ -7,6 +7,36 @@ let currentChatId = null;
 let isLoading = false;
 let sidebarExpanded = false;
 
+function renderMarkdown(text) {
+    if (!text) return '';
+    
+    if (typeof marked !== 'undefined') {
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(code, { language: lang }).value;
+                    } catch (e) {
+                        console.error('Highlight error:', e);
+                    }
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true,
+            gfm: true
+        });
+        
+        try {
+            return marked.parse(text);
+        } catch (e) {
+            console.error('Markdown parsing error:', e);
+            return text;
+        }
+    }
+    
+    return text.replace(/\n/g, '<br>');
+}
+
 // Persist and restore last opened chat and view/scroll to avoid flicker on reload
 const LAST_CHAT_KEY = 'sarkar_last_chat_id';
 const LAST_VIEW_KEY = 'sarkar_last_view'; // 'chat' | 'welcome'
@@ -50,6 +80,9 @@ function getLastWinScroll() {
 }
 
 function initializeSarkarInterface() {
+    // Initialize mobile keyboard support
+    initializeMobileKeyboard();
+    
     // Initialize event listeners
     initializeEventListeners();
 
@@ -93,6 +126,33 @@ function initializeSarkarInterface() {
 
     // Initialize sidebar state
     initializeSidebar();
+}
+
+function initializeMobileKeyboard() {
+    if ('virtualKeyboard' in navigator) {
+        navigator.virtualKeyboard.overlaysContent = true;
+        
+        navigator.virtualKeyboard.addEventListener('geometrychange', (event) => {
+            const { height } = event.target.boundingRect;
+            document.documentElement.style.setProperty('--keyboard-height', `${height}px`);
+            
+            const messagesContainer = document.getElementById('messagesContainer');
+            if (messagesContainer && height > 0) {
+                setTimeout(() => {
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }, 100);
+            }
+        });
+    }
+    
+    const textareas = document.querySelectorAll('#messageInput, #chatInput');
+    textareas.forEach(textarea => {
+        textarea.addEventListener('focus', function() {
+            setTimeout(() => {
+                this.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 300);
+        });
+    });
 }
 
 function initializeEventListeners() {
@@ -527,6 +587,7 @@ async function sendMessage(message) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let accumulatedText = '';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -560,10 +621,14 @@ async function sendMessage(message) {
                             }).catch(() => {});
                         }
                     } else if (data.type === 'chunk') {
-                        messageText.textContent += data.content;
+                        accumulatedText += data.content;
+                        messageText.innerHTML = renderMarkdown(accumulatedText);
                         scrollToBottom();
                     } else if (data.type === 'end') {
                         aiMessageDiv.classList.remove('streaming');
+                        
+                        // Final markdown render
+                        messageText.innerHTML = renderMarkdown(accumulatedText);
                         
                         // Add action bar
                         const actionBar = document.createElement('div');
@@ -1507,16 +1572,19 @@ function setActionFeedback(sourceBtn, text) {
 }
 
 // Create a retry typing indicator and fetch fresh AI response without duplicating user message
-function retryFromAiMessage(aiMessageEl) {
-    if (!aiMessageEl) return;
+async function retryFromAiMessage(aiMessageEl) {
+    if (!aiMessageEl || isLoading) return;
     const messagesList = document.getElementById('messagesList');
     if (!messagesList) return;
 
-    // Find the previous user message and get its text
-    const userText = findPreviousUserMessageText(aiMessageEl);
-    if (!userText) return;
+    isLoading = true;
 
-    // Remove the AI message clicked and every message after it
+    const userText = findPreviousUserMessageText(aiMessageEl);
+    if (!userText) {
+        isLoading = false;
+        return;
+    }
+
     let node = aiMessageEl;
     while (node) {
         const next = node.nextElementSibling;
@@ -1524,29 +1592,93 @@ function retryFromAiMessage(aiMessageEl) {
         node = next;
     }
 
-    // Request the API for a new response
-    (async () => {
-        try {
-            const response = await fetch('/api/retry', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ anchor_user_text: userText, chat_id: currentChatId, truncate: true })
-            });
-            const data = await response.json();
-            if (response.ok) {
-                // Append immediate AI response as plain text
-                addMessageToUI((data.ai_message && data.ai_message.content) || '', false);
-                // Force scroll to bottom for retry response
-                scrollToBottomForce();
-            } else {
-                addMessageToUI('Sorry, retry failed.', false, true);
-                scrollToBottomForce();
-            }
-        } catch (_) {
-            addMessageToUI('Sorry, retry failed.', false, true);
-            scrollToBottomForce();
+    const aiMessageDiv = document.createElement('div');
+    aiMessageDiv.className = 'message ai-message streaming';
+    
+    const messageContent = document.createElement('div');
+    messageContent.className = 'message-content';
+    
+    const messageText = document.createElement('div');
+    messageText.className = 'message-text';
+    messageText.textContent = '';
+    
+    messageContent.appendChild(messageText);
+    aiMessageDiv.appendChild(messageContent);
+    messagesList.appendChild(aiMessageDiv);
+    scrollToBottomForce();
+
+    try {
+        const response = await fetch('/api/send_message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: userText,
+                chat_id: currentChatId
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to retry message');
         }
-    })();
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulatedText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop();
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'chunk') {
+                        accumulatedText += data.content;
+                        messageText.innerHTML = renderMarkdown(accumulatedText);
+                        scrollToBottom();
+                    } else if (data.type === 'end') {
+                        aiMessageDiv.classList.remove('streaming');
+                        
+                        // Final markdown render
+                        messageText.innerHTML = renderMarkdown(accumulatedText);
+                        
+                        const actionBar = document.createElement('div');
+                        actionBar.className = 'message-action-bar';
+                        actionBar.innerHTML = `
+                            <button class="action-btn copy-btn" title="Copy"><i class="fas fa-copy"></i></button>
+                            <button class="action-btn thumbs-up-btn" title="Thumbs Up"><i class="fas fa-thumbs-up"></i></button>
+                            <button class="action-btn thumbs-down-btn" title="Thumbs Down"><i class="fas fa-thumbs-down"></i></button>
+                            <button class="action-btn retry-btn" title="Retry"><i class="fas fa-redo"></i></button>
+                        `;
+                        messageContent.appendChild(actionBar);
+                        
+                        const feedback = document.createElement('div');
+                        feedback.className = 'message-feedback';
+                        messageContent.appendChild(feedback);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error retrying message:', error);
+        messageText.textContent = 'Sorry, I encountered an error. Please try again.';
+        aiMessageDiv.classList.remove('streaming');
+        aiMessageDiv.classList.add('error-message');
+    }
+
+    isLoading = false;
+    
+    const chatInput = document.getElementById('chatInput');
+    if (chatInput) {
+        chatInput.focus();
+    }
 }
 
 // Add a typing bubble that says "Retrying…" (uses .typing so replaceTypingWithResponse will swap it)
