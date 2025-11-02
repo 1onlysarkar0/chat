@@ -58,6 +58,13 @@ from routes import main_routes
 app.register_blueprint(google_auth)
 app.register_blueprint(main_routes)
 
+@app.after_request
+def add_cache_control(response):
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 with app.app_context():
     # Import models to ensure tables are created
     import models  # noqa: F401
