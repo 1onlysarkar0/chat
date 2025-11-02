@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context
 import json
 import asyncio
+import logging
 from flask_login import login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db
@@ -8,6 +9,8 @@ from models import User, Chat, Message, PasswordResetToken
 from gemini_chat import generate_chat_response, generate_chat_response_streaming, generate_chat_title
 from email_service import send_password_reset_email
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 main_routes = Blueprint('main_routes', __name__)
 
