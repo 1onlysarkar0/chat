@@ -1,5 +1,6 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
-import threading
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, stream_with_context
+import json
+import asyncio
 from flask_login import login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from app import db
@@ -215,16 +216,24 @@ def send_message():
             if not chat:
                 return jsonify({'error': 'Chat not found'}), 404
         else:
-            # Create new chat (avoid extra LLM call for title to reduce latency)
             chat = Chat()
-            # Quick local title from the first message (trimmed)
             preview = (message_content or '')[:50].strip()
             chat.title = preview if preview else 'New Chat'
             chat.user_id = current_user.id
             db.session.add(chat)
-            db.session.flush()  # Get chat ID
+            db.session.flush()
         
-        # Save user message (commit now so it appears in history without delaying later)
+        # Get chat history BEFORE saving user message
+        chat_history = []
+        messages_list = list(chat.messages)
+        recent_messages = messages_list[-10:] if len(messages_list) > 10 else messages_list
+        for msg in recent_messages:
+            chat_history.append({
+                'content': msg.content,
+                'is_user': msg.is_user
+            })
+        
+        # Save user message
         user_message = Message()
         user_message.content = message_content
         user_message.is_user = True
@@ -232,38 +241,46 @@ def send_message():
         db.session.add(user_message)
         db.session.commit()
         
-        # Get chat history for context (optimized)
-        chat_history = []
-        if chat_id:  # Only fetch history for existing chats
-            messages_list = list(chat.messages)
-            recent_messages = messages_list[-5:] if len(messages_list) > 5 else messages_list
-            for msg in recent_messages:
-                chat_history.append({
-                    'content': msg.content,
-                    'is_user': msg.is_user
-                })
+        # Store chat_id for use in generator
+        current_chat_id = chat.id
         
-        # Generate AI response
-        ai_response = generate_chat_response_streaming(message_content, chat_history)
-
-        # Persist AI message in background to avoid delaying response
-        threading.Thread(target=_persist_ai_message, args=(chat.id, ai_response), daemon=True).start()
-
-        # Return immediately with AI response and chat id (omit db-generated ids for speed)
-        return jsonify({
-            'user_message': {
-                'content': user_message.content,
-                'is_user': True,
-                'created_at': user_message.created_at.isoformat()
-            },
-            'ai_message': {
-                'content': ai_response,
-                'is_user': False
-            },
-            'chat_id': chat.id
-        })
+        def generate():
+            full_response = ""
+            try:
+                # Send initial metadata
+                yield f"data: {json.dumps({'type': 'start', 'chat_id': current_chat_id})}\n\n"
+                
+                # Stream AI response
+                for chunk in generate_chat_response_streaming(message_content, chat_history):
+                    if chunk:
+                        full_response += chunk
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+                
+                # Save AI message to database
+                if full_response:
+                    ai_message = Message()
+                    ai_message.content = full_response
+                    ai_message.is_user = False
+                    ai_message.chat_id = current_chat_id
+                    db.session.add(ai_message)
+                    chat.updated_at = datetime.utcnow()
+                    db.session.commit()
+                
+                # Send completion signal
+                yield f"data: {json.dumps({'type': 'end'})}\n\n"
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                if not full_response:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': 'I apologize, but I encountered an error. Please try again.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'end'})}\n\n"
+        
+        response = Response(stream_with_context(generate()), mimetype='text/event-stream')
+        response.headers['Cache-Control'] = 'no-cache'
+        response.headers['X-Accel-Buffering'] = 'no'
+        return response
         
     except Exception as e:
+        logger.error(f"Send message error: {e}")
         db.session.rollback()
         return jsonify({'error': 'Failed to send message'}), 500
 
