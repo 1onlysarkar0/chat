@@ -426,10 +426,37 @@ function hideHistoryPanel() {
     }
 }
 
-// Remove legacy settings panel helpers (no longer used)
-function toggleSettingsPanel() { }
-function showSettingsPanel() { }
-function hideSettingsPanel() { }
+function hideSettingsPanel() {
+    const settingsPanel = document.getElementById('settingsPanel');
+    const settingsBtn = document.getElementById('settingsBtn');
+    
+    if (settingsPanel && settingsBtn) {
+        settingsPanel.classList.remove('show');
+        settingsBtn.classList.remove('active');
+    }
+}
+
+function toggleSettingsPanel() {
+    const settingsPanel = document.getElementById('settingsPanel');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const historyPanel = document.getElementById('chatHistoryPanel');
+    
+    if (settingsPanel && settingsBtn) {
+        const isVisible = settingsPanel.classList.contains('show');
+        
+        // Close history panel if open
+        if (historyPanel && historyPanel.classList.contains('show')) {
+            hideHistoryPanel();
+        }
+        
+        if (isVisible) {
+            hideSettingsPanel();
+        } else {
+            settingsPanel.classList.add('show');
+            settingsBtn.classList.add('active');
+        }
+    }
+}
 
 function closePanels() {
     hideHistoryPanel();
@@ -441,7 +468,6 @@ async function sendMessage(message) {
     if (!message || isLoading) return;
 
     isLoading = true;
-    // No loading screen or typing indicators
 
     // Clear inputs
     const mainInput = document.getElementById('messageInput');
@@ -464,7 +490,25 @@ async function sendMessage(message) {
     // Add user message to UI
     addMessageToUI(message, true);
 
+    // Create placeholder for streaming AI response
+    const messagesList = document.getElementById('messagesList');
+    const aiMessageDiv = document.createElement('div');
+    aiMessageDiv.className = 'message ai-message streaming';
+    
+    const messageContent = document.createElement('div');
+    messageContent.className = 'message-content';
+    
+    const messageText = document.createElement('div');
+    messageText.className = 'message-text';
+    messageText.textContent = '';
+    
+    messageContent.appendChild(messageText);
+    aiMessageDiv.appendChild(messageContent);
+    messagesList.appendChild(aiMessageDiv);
+    scrollToBottomForce();
+
     try {
+        // Use EventSource for Server-Sent Events
         const response = await fetch('/api/send_message', {
             method: 'POST',
             headers: {
@@ -476,47 +520,78 @@ async function sendMessage(message) {
             })
         });
 
-        const data = await response.json();
-
-        if (response.ok) {
-            // Update current chat ID if it's a new chat
-            if (!currentChatId) {
-                const isNewChat = true;
-                const newId = data.chat_id;
-                currentChatId = newId;
-                setLastChatId(currentChatId);
-                await ensureChatInHistory(currentChatId);
-                // Fire-and-forget: request a better title without delaying UI
-                try {
-                    fetch('/api/retitle_chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chat_id: newId, first_message: message })
-                    }).then(r => r.json()).then(res => {
-                        if (res && res.title) {
-                            const item = document.querySelector(`.chat-history-item[data-chat-id="${newId}"] .chat-title`);
-                            if (item) item.textContent = res.title;
-                        }
-                    }).catch(() => {});
-                } catch (_) { }
-            }
-
-            // Display AI response instantly as plain text
-            addMessageToUI((data.ai_message && data.ai_message.content) || '', false);
-            // Instant scroll to bottom
-            scrollToBottomForce();
-        } else {
-            throw new Error(data.error || 'Failed to send message');
+        if (!response.ok) {
+            throw new Error('Failed to send message');
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop();
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'start') {
+                        if (!currentChatId) {
+                            currentChatId = data.chat_id;
+                            setLastChatId(currentChatId);
+                            await ensureChatInHistory(currentChatId);
+                            
+                            // Request better title
+                            fetch('/api/retitle_chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ chat_id: currentChatId, first_message: message })
+                            }).then(r => r.json()).then(res => {
+                                if (res && res.title) {
+                                    const item = document.querySelector(`.chat-history-item[data-chat-id="${currentChatId}"] .chat-title`);
+                                    if (item) item.textContent = res.title;
+                                }
+                            }).catch(() => {});
+                        }
+                    } else if (data.type === 'chunk') {
+                        messageText.textContent += data.content;
+                        scrollToBottom();
+                    } else if (data.type === 'end') {
+                        aiMessageDiv.classList.remove('streaming');
+                        
+                        // Add action bar
+                        const actionBar = document.createElement('div');
+                        actionBar.className = 'message-action-bar';
+                        actionBar.innerHTML = `
+                            <button class="action-btn copy-btn" title="Copy"><i class="fas fa-copy"></i></button>
+                            <button class="action-btn thumbs-up-btn" title="Thumbs Up"><i class="fas fa-thumbs-up"></i></button>
+                            <button class="action-btn thumbs-down-btn" title="Thumbs Down"><i class="fas fa-thumbs-down"></i></button>
+                            <button class="action-btn retry-btn" title="Retry"><i class="fas fa-redo"></i></button>
+                        `;
+                        messageContent.appendChild(actionBar);
+                        
+                        const feedback = document.createElement('div');
+                        feedback.className = 'message-feedback';
+                        messageContent.appendChild(feedback);
+                    }
+                }
+            }
+        }
+
     } catch (error) {
         console.error('Error sending message:', error);
-        // Show error as a normal AI message (no typing replacement)
-        addMessageToUI('Sorry, I encountered an error. Please try again.', false, true);
-        scrollToBottomForce();
+        messageText.textContent = 'Sorry, I encountered an error. Please try again.';
+        aiMessageDiv.classList.remove('streaming');
+        aiMessageDiv.classList.add('error-message');
     }
 
     isLoading = false;
-    // No loading hide needed
 
     // Focus the chat input
     if (chatInput) {
