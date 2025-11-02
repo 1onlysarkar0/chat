@@ -112,19 +112,6 @@
                                 class="greeting-favicon">
                         </h1>
                     </div>
-
-                    <!-- Main Chat Input Card -->
-                    <div class="main-chat-input">
-                        <div class="chat-input-card">
-                            <textarea class="main-input" id="messageInput" placeholder="How can I help you today?"
-                                rows="1"></textarea>
-                            <div class="input-right-section">
-                                <button class="send-btn" id="sendBtn" disabled>
-                                    <i class="fas fa-arrow-up"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -135,18 +122,19 @@
                         <!-- Messages will be loaded here -->
                     </div>
                 </div>
-
-                <!-- Chat Input at Bottom -->
-                <div class="chat-input-bottom">
-                    <div class="input-wrapper">
-                        <textarea class="chat-input" id="chatInput" placeholder="How can I help you today?"
-                            rows="1"></textarea>
-                        <button class="send-chat-btn" id="sendChatBtn" disabled>
-                            <i class="fas fa-arrow-up"></i>
-                        </button>
-                    </div>
-                </div>
             </div>
+        </div>
+        
+        <!-- Unified Chat Input (shown in both welcome and chat states) -->
+        <div class="chat-input-bottom">
+            <div class="input-wrapper">
+                <textarea class="chat-input" id="chatInput" placeholder="How can I help you today?"
+                    rows="1"></textarea>
+                <button class="send-chat-btn" id="sendChatBtn" disabled>
+                    <i class="fas fa-arrow-up"></i>
+                </button>
+            </div>
+        </div>
         </div>
     </div>
 </div>
