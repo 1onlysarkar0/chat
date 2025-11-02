@@ -10,32 +10,115 @@ let sidebarExpanded = false;
 function renderMarkdown(text) {
     if (!text) return '';
     
-    if (typeof marked !== 'undefined') {
+    if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+        // Custom renderer for code blocks with copy button
+        const renderer = new marked.Renderer();
+        const originalCodeRenderer = renderer.code.bind(renderer);
+        
+        renderer.code = function(code, language) {
+            const langName = language || 'text';
+            const validLang = hljs.getLanguage(langName) ? langName : 'plaintext';
+            const highlighted = hljs.highlight(code, { language: validLang }).value;
+            
+            return `
+                <div class="codeblock-wrapper">
+                    <div class="codeblock-header">
+                        <span class="codeblock-lang">${langName}</span>
+                        <button class="codeblock-copy" data-action="copy-code">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    <pre><code class="hljs language-${validLang}">${highlighted}</code></pre>
+                </div>
+            `;
+        };
+        
         marked.setOptions({
-            highlight: function(code, lang) {
-                if (lang && hljs.getLanguage(lang)) {
-                    try {
-                        return hljs.highlight(code, { language: lang }).value;
-                    } catch (e) {
-                        console.error('Highlight error:', e);
-                    }
-                }
-                return hljs.highlightAuto(code).value;
-            },
+            renderer: renderer,
             breaks: true,
-            gfm: true
+            gfm: true,
+            headerIds: false,
+            mangle: false
         });
         
         try {
-            return marked.parse(text);
+            let html = marked.parse(text);
+            // Sanitize HTML to prevent XSS attacks
+            if (typeof DOMPurify !== 'undefined') {
+                html = DOMPurify.sanitize(html, {
+                    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'del', 's', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'div', 'span', 'hr', 'sup', 'sub', 'kbd', 'mark', 'dl', 'dt', 'dd', 'i', 'button'],
+                    ALLOWED_ATTR: ['class', 'href', 'target', 'rel', 'src', 'alt', 'title', 'data-action'],
+                    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+                    ALLOW_DATA_ATTR: false,
+                    FORBID_TAGS: ['iframe', 'object', 'embed', 'base', 'link', 'meta', 'script', 'style'],
+                    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover']
+                });
+            }
+            return html;
         } catch (e) {
             console.error('Markdown parsing error:', e);
-            return text;
+            return escapeHtml(text).replace(/\n/g, '<br>');
         }
     }
     
-    return text.replace(/\n/g, '<br>');
+    return escapeHtml(text).replace(/\n/g, '<br>');
 }
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Event delegation for copy code blocks - hardened to prevent abuse
+document.addEventListener('click', function(e) {
+    const copyButton = e.target.closest('[data-action="copy-code"]');
+    if (copyButton) {
+        e.preventDefault();
+        
+        // Security: Only allow copy from legitimate code blocks rendered by our system
+        const wrapper = copyButton.closest('.codeblock-wrapper');
+        if (!wrapper) {
+            console.warn('Copy button not in valid code block wrapper');
+            return;
+        }
+        
+        // Security: Verify the button is in the header (not injected elsewhere)
+        const header = copyButton.closest('.codeblock-header');
+        if (!header || header.parentElement !== wrapper) {
+            console.warn('Copy button not in valid code block header');
+            return;
+        }
+        
+        const codeElement = wrapper.querySelector('pre code');
+        if (!codeElement) {
+            console.warn('No code element found in code block');
+            return;
+        }
+        
+        const code = codeElement.textContent;
+        
+        // Security: Limit code size to prevent clipboard abuse
+        if (code.length > 1000000) { // 1MB limit
+            console.warn('Code too large to copy');
+            alert('Code is too large to copy to clipboard');
+            return;
+        }
+        
+        navigator.clipboard.writeText(code).then(() => {
+            const originalHTML = copyButton.innerHTML;
+            copyButton.innerHTML = '<i class="fas fa-check"></i> Copied!';
+            copyButton.classList.add('copied');
+            
+            setTimeout(() => {
+                copyButton.innerHTML = originalHTML;
+                copyButton.classList.remove('copied');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+        });
+    }
+});
 
 // Persist and restore last opened chat and view/scroll to avoid flicker on reload
 const LAST_CHAT_KEY = 'sarkar_last_chat_id';
@@ -145,7 +228,7 @@ function initializeMobileKeyboard() {
         });
     }
     
-    const textareas = document.querySelectorAll('#messageInput, #chatInput');
+    const textareas = document.querySelectorAll('#chatInput');
     textareas.forEach(textarea => {
         textarea.addEventListener('focus', function() {
             setTimeout(() => {
@@ -222,31 +305,6 @@ function initializeEventListeners() {
         });
     }
 
-    // Main input handling
-    const mainInput = document.getElementById('messageInput');
-    const sendBtn = document.getElementById('sendBtn');
-
-    if (mainInput && sendBtn) {
-        mainInput.addEventListener('input', function () {
-            const hasText = this.value.trim().length > 0;
-            sendBtn.disabled = !hasText;
-        });
-
-        mainInput.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (!sendBtn.disabled && !isLoading) {
-                    sendMessage(this.value.trim());
-                }
-            }
-        });
-
-        sendBtn.addEventListener('click', function () {
-            if (!this.disabled && !isLoading) {
-                sendMessage(mainInput.value.trim());
-            }
-        });
-    }
 
     // Chat input handling
     const chatInput = document.getElementById('chatInput');
@@ -329,17 +387,13 @@ function initializeEventListeners() {
             const suggestion = e.target.closest('.suggestion-btn').dataset.suggestion;
             const inputText = `Help me with ${suggestion.toLowerCase()}`;
 
-            const mainInput = document.getElementById('messageInput');
             const chatInput = document.getElementById('chatInput');
+            const sendChatBtn = document.getElementById('sendChatBtn');
 
-            if (mainInput && mainInput.offsetParent !== null) {
-                mainInput.value = inputText;
-                mainInput.focus();
-                document.getElementById('sendBtn').disabled = false;
-            } else if (chatInput && chatInput.offsetParent !== null) {
+            if (chatInput) {
                 chatInput.value = inputText;
                 chatInput.focus();
-                document.getElementById('sendChatBtn').disabled = false;
+                if (sendChatBtn) sendChatBtn.disabled = false;
             }
         }
     });
@@ -529,16 +583,10 @@ async function sendMessage(message) {
 
     isLoading = true;
 
-    // Clear inputs
-    const mainInput = document.getElementById('messageInput');
+    // Clear input
     const chatInput = document.getElementById('chatInput');
-    const sendBtn = document.getElementById('sendBtn');
     const sendChatBtn = document.getElementById('sendChatBtn');
 
-    if (mainInput) {
-        mainInput.value = '';
-        if (sendBtn) sendBtn.disabled = true;
-    }
     if (chatInput) {
         chatInput.value = '';
         if (sendChatBtn) sendChatBtn.disabled = true;
@@ -717,10 +765,12 @@ function addMessageToUI(content, isUser, isError = false) {
     const messageText = document.createElement('div');
     messageText.className = 'message-text';
 
-    // Always render as plain text (no HTML parsing/formatting)
-    messageText.textContent = content;
-
-    // No avatar beside AI messages
+    // Render AI messages with markdown, user messages as plain text
+    if (isUser) {
+        messageText.textContent = content;
+    } else {
+        messageText.innerHTML = renderMarkdown(content);
+    }
 
     messageContent.appendChild(messageText);
     messageDiv.appendChild(messageContent);
@@ -751,7 +801,7 @@ function addMessageToUI(content, isUser, isError = false) {
         if (copyBtn) copyBtn.onclick = () => handleCopyMessage(messageText.innerText, copyBtn);
         if (thumbsUpBtn) thumbsUpBtn.onclick = () => handleThumbsUp(messageDiv, thumbsUpBtn);
         if (thumbsDownBtn) thumbsDownBtn.onclick = () => handleThumbsDown(messageDiv, thumbsDownBtn);
-        if (retryBtn) retryBtn.onclick = () => handleRetryMessage(messageText.innerText, messageDiv);
+        if (retryBtn) retryBtn.onclick = () => handleRetryMessage(content, messageDiv);
     }
 
     messagesList.appendChild(messageDiv);
@@ -855,10 +905,10 @@ function newChat() {
         closePanels();
     }
 
-    // Focus main input
-    const mainInput = document.getElementById('messageInput');
-    if (mainInput) {
-        mainInput.focus();
+    // Focus chat input
+    const chatInput = document.getElementById('chatInput');
+    if (chatInput) {
+        chatInput.focus();
     }
 }
 
@@ -1163,7 +1213,7 @@ async function refreshChatsList() {
 }
 
 function autoResizeTextareas() {
-    const textareas = document.querySelectorAll('#messageInput, #chatInput');
+    const textareas = document.querySelectorAll('#chatInput');
 
     textareas.forEach(textarea => {
         if (textarea) {
