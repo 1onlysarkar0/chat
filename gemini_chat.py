@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize LangChain with Gemini for streaming
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
+    model="gemini-2.0-flash",
     google_api_key=os.environ.get("GEMINI_API_KEY"),
     temperature=0.7,
     streaming=True
