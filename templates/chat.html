@@ -1,0 +1,315 @@
+{% extends "base.html" %}
+
+{% block title %}Chat - SARKAR AI{% endblock %}
+
+{% block content %}
+<div class="sarkar-container">
+    <!-- Sidebar Toggle Button (Mobile) -->
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
+        <i class="fas fa-bars"></i>
+    </button>
+    <!-- User Profile Button (Mobile Header, opposite hamburger) -->
+    <div class="header-profile-mobile" id="headerProfileMobile">
+        <div class="user-profile" id="userProfileBtnHeader" title="{{ current_user.get_display_name() }}">
+            <div class="user-avatar">
+                {{ current_user.get_display_name()[:1].upper() }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Left Sidebar -->
+    <div class="sarkar-sidebar" id="sidebar">
+        <div class="sidebar-content">
+            <!-- Sidebar Icons -->
+            <div class="sidebar-icons">
+                <!-- Sidebar Toggle Icon -->
+                <button class="sidebar-icon" id="sidebarToggleIcon" title="Toggle sidebar">
+                    <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="Logo" class="sidebar-logo-icon">
+                </button>
+
+                <!-- New Chat Icon -->
+                <button class="sidebar-icon new-chat" id="newChatBtn" title="New chat">
+                    <i class="fas fa-plus"></i>
+                </button>
+
+                <!-- Chat History Icon -->
+                <button class="sidebar-icon" id="historyBtn" title="Chat history">
+                    <i class="fas fa-comments"></i>
+                </button>
+
+                <!-- Delete/Trash Icon -->
+                <button class="sidebar-icon" id="deleteBtn" title="Delete chats">
+                    <i class="fas fa-trash"></i>
+                </button>
+
+                <!-- Settings Icon removed per request -->
+            </div>
+
+            <!-- User Profile at Bottom -->
+            <div class="sidebar-bottom sidebar-bottom-desktop">
+                <div class="user-profile" id="userProfileBtn" title="{{ current_user.get_display_name() }}">
+                    <div class="user-avatar">
+                        {{ current_user.get_display_name()[:1].upper() }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat History Panel -->
+    <div class="chat-history-panel" id="chatHistoryPanel">
+        <div class="history-header">
+            <h3>Chat History</h3>
+            <button class="close-panel-btn" id="closePanelBtn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="history-content">
+            <div class="chats-list" id="chatsList">
+                {% for chat in chats %}
+                <div class="chat-history-item" data-chat-id="{{ chat.id }}">
+                    <div class="chat-title">{{ chat.title }}</div>
+                    <div class="chat-preview">{{ chat.get_preview() }}</div>
+                    <button class="delete-chat-btn" data-chat-id="{{ chat.id }}" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel removed per request -->
+
+    <!-- Main Content Area -->
+    <div class="sarkar-main">
+        <!-- Top Header -->
+        <div class="sarkar-header">
+            <!-- Plan Info -->
+            <div class="plan-info">
+                <span class="plan-status">Free plan</span>
+                <span class="plan-separator">-</span>
+                <a href="#" class="upgrade-link">Upgrade</a>
+            </div>
+            <!-- User Profile Button (Mobile, right side) -->
+            <div class="header-profile-mobile header-profile-mobile-duplicate" style="display:none"></div>
+        </div>
+
+        <!-- Chat Content -->
+        <div class="sarkar-content">
+            <!-- Welcome State -->
+            <div class="welcome-state" id="welcomeState">
+                <div class="welcome-center">
+                    <!-- Main Greeting -->
+                    <div class="main-greeting">
+                        <h1 class="greeting-title">
+                            <img src="{{ url_for('static', filename='images/favicon.png') }}" alt=""
+                                class="greeting-favicon">
+                            <span class="greeting-welcome">Welcome,</span>
+                            <span class="brand-name">{{ current_user.get_display_name() if current_user.is_authenticated
+                                else 'Guest' }}</span>
+                            <img src="{{ url_for('static', filename='images/favicon.png') }}" alt=""
+                                class="greeting-favicon">
+                        </h1>
+                    </div>
+
+                    <!-- Main Chat Input Card -->
+                    <div class="main-chat-input">
+                        <div class="chat-input-card">
+                            <textarea class="main-input" id="messageInput" placeholder="How can I help you today?"
+                                rows="1"></textarea>
+                            <div class="input-right-section">
+                                <button class="send-btn" id="sendBtn" disabled>
+                                    <i class="fas fa-arrow-up"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div class="chat-messages" id="chatMessages" style="display: none;">
+                <div class="messages-container" id="messagesContainer">
+                    <div class="messages-list" id="messagesList">
+                        <!-- Messages will be loaded here -->
+                    </div>
+                </div>
+
+                <!-- Chat Input at Bottom -->
+                <div class="chat-input-bottom">
+                    <div class="input-wrapper">
+                        <textarea class="chat-input" id="chatInput" placeholder="How can I help you today?"
+                            rows="1"></textarea>
+                        <button class="send-chat-btn" id="sendChatBtn" disabled>
+                            <i class="fas fa-arrow-up"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User Profile Dropdown -->
+<div class="profile-dropdown" id="profileDropdown">
+    <div class="profile-header">
+        <div class="profile-avatar">
+            {{ current_user.get_display_name()[:1].upper() }}
+        </div>
+        <div class="profile-info">
+            <div class="profile-name">{{ current_user.get_display_name() }}</div>
+            <div class="profile-email">{{ current_user.email }}</div>
+        </div>
+    </div>
+    <div class="profile-menu">
+        <button class="profile-menu-item" id="settingsMenuItem">
+            <i class="fas fa-cog"></i>
+            <span>Settings</span>
+        </button>
+        <button class="profile-menu-item" id="helpMenuItem">
+            <i class="fas fa-question-circle"></i>
+            <span>Help & Support</span>
+        </button>
+        <hr class="profile-divider">
+        <a href="{{ url_for('google_auth.logout') }}" class="profile-menu-item logout-item">
+            <i class="fas fa-sign-out-alt"></i>
+            <span>Logout</span>
+        </a>
+    </div>
+</div>
+
+<!-- Centered Settings Modal -->
+<div class="password-modal" id="settingsCenterModal">
+    <div class="modal-overlay" id="settingsCenterOverlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Settings</h3>
+            <button class="close-modal-btn" id="closeSettingsCenterModal">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="displayNameCenter">Display Name</label>
+                <input type="text" id="displayNameCenter" class="form-input"
+                    value="{{ current_user.get_display_name() }}">
+            </div>
+            <div class="form-group">
+                <button class="setting-btn" id="changePasswordFromCenter">Change Password</button>
+            </div>
+            <!-- Logout removed from centered modal -->
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="cancelSettingsCenterBtn">Close</button>
+            <button type="button" class="btn-primary" id="saveSettingsCenterBtn">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Options Modal -->
+<div class="password-modal" id="deleteOptionsModal">
+    <div class="modal-overlay" id="deleteOptionsOverlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Delete chats</h3>
+            <button class="close-modal-btn" id="closeDeleteOptions">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <p>Choose what you want to delete.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="deleteCurrentBtn">Delete current chat</button>
+            <button type="button" class="btn-primary" id="deleteAllBtn">Delete all chats</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Single Delete Modal -->
+<div class="password-modal" id="confirmDeleteModal">
+    <div class="modal-overlay" id="confirmDeleteOverlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Delete chat</h3>
+            <button class="close-modal-btn" id="closeConfirmDelete">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete this chat? This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="cancelConfirmDeleteBtn">Cancel</button>
+            <button type="button" class="btn-primary" id="confirmDeleteBtn">Delete</button>
+        </div>
+    </div>
+
+
+</div>
+
+<!-- Confirm Delete All Chats Modal -->
+<div class="password-modal" id="confirmDeleteAllModal">
+    <div class="modal-overlay" id="confirmDeleteAllOverlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Delete all chats</h3>
+            <button class="close-modal-btn" id="closeConfirmDeleteAll">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete all chats? This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="cancelConfirmDeleteAllBtn">Cancel</button>
+            <button type="button" class="btn-primary" id="confirmDeleteAllBtn">Delete all</button>
+        </div>
+    </div>
+</div>
+
+<!-- Password Change Modal -->
+<div class="password-modal" id="passwordModal">
+    <div class="modal-overlay" id="passwordModalOverlay"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Change Password</h3>
+            <button class="close-modal-btn" id="closePasswordModal">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="modal-body">
+            <form id="passwordForm">
+                <div class="form-group">
+                    <label for="currentPassword">Current Password</label>
+                    <input type="password" id="currentPassword" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">New Password</label>
+                    <input type="password" id="newPassword" class="form-input" required>
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm New Password</label>
+                    <input type="password" id="confirmPassword" class="form-input" required>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-secondary" id="cancelPasswordBtn">Cancel</button>
+            <button type="button" class="btn-primary" id="savePasswordBtn">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading indicator -->
+<div class="loading-indicator" id="loadingIndicator">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sarkar-chat.js') }}"></script>
+{% endblock %}

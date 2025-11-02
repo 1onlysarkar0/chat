@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome - SARKAR AI{% endblock %}
+
+{% block content %}
+<div class="login-bg">
+  <div class="login-center-card">
+    <div class="login-logo-container">
+      <img src="{{ url_for('static', filename='images/logo.svg') }}" alt="SARKAR AI" class="login-logo">
+    </div>
+    <div class="login-title">SARKAR AI</div>
+    <div class="login-subtitle">Welcome Back</div>
+    <a href="{{ url_for('google_auth.login') }}" class="btn login-google-btn">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="google-icon" alt="Google"> Login with Google
+    </a>
+    <div class="login-divider"><span>Or continue with</span></div>
+    <form method="POST" action="{{ url_for('main_routes.login') }}" class="login-form">
+      <input type="text" class="login-input" id="username" name="username" placeholder="Username" required>
+      <div class="login-password-group">
+        <input type="password" class="login-input" id="password" name="password" placeholder="Password" required>
+        <label class="show-password-label">
+          <input type="checkbox" onclick="togglePassword('password')"> Show password
+        </label>
+      </div>
+      <div class="login-links-row">
+        <a href="{{ url_for('main_routes.reset_password_request_page') }}" class="login-link">Forgot password?</a>
+      </div>
+      <button type="submit" class="btn login-btn">Login</button>
+    </form>
+    <div class="login-signup-row">
+      <span>Don't have an account?</span> <a href="{{ url_for('main_routes.register_page') }}" class="login-link">Sign up</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function togglePassword(inputId) {
+        const input = document.getElementById(inputId);
+        const eye = document.getElementById(inputId + '-eye');
+
+        if (input.type === 'password') {
+            input.type = 'text';
+            eye.className = 'fas fa-eye-slash';
+        } else {
+            input.type = 'password';
+            eye.className = 'fas fa-eye';
+        }
+    }
+</script>
+{% endblock %}
